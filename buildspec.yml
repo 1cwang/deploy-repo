@@ -62,12 +62,22 @@ phases:
           echo "ERROR: No approved model package found in group ${MODEL_PACKAGE_GROUP_NAME}"; exit 1
         fi
         echo "Latest approved model: ${MODEL_PACKAGE_ARN}"
-      # Model bucket info comes from L3 construct env vars (MODEL_BUCKET_NAME, PIPELINE_BUCKET_NAME).
-      # Fall back to SSM lookup if not set directly.
+      # Resolve the training pipeline's bucket and KMS key.
+      # The model.tar.gz lives in the training seed code's pipeline bucket.
+      # PIPELINE_BUCKET_NAME may already be set by the L3 construct (when pipelineBucketName is configured).
+      # Otherwise, look it up from the training seed code's SSM exports using the model package group name.
       - |
         set -e
         if [ -z "${PIPELINE_BUCKET_NAME}" ]; then
-          export PIPELINE_BUCKET_NAME="${MODEL_BUCKET_NAME}"
+          MPG_SSM=$(aws ssm get-parameters-by-path \
+            --path "/${MDAA_ORG}/mlops/pipeline/sm-pipeline/" \
+            --recursive --query "Parameters[?ends_with(Name, '/model-bucket-name')].Value" \
+            --output text 2>/dev/null || echo "")
+          if [ -n "${MPG_SSM}" ]; then
+            export PIPELINE_BUCKET_NAME="${MPG_SSM}"
+          else
+            export PIPELINE_BUCKET_NAME="${MODEL_BUCKET_NAME}"
+          fi
         fi
         if [ -n "${PIPELINE_BUCKET_NAME}" ]; then
           export PIPELINE_BUCKET_ARN="arn:aws:s3:::${PIPELINE_BUCKET_NAME}"
