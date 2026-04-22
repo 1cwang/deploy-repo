@@ -83,10 +83,9 @@ phases:
           export PIPELINE_BUCKET_ARN="arn:aws:s3:::${PIPELINE_BUCKET_NAME}"
         fi
         if [ -z "${PIPELINE_KMS_ARN}" ]; then
-          PIPELINE_KMS_ARN=$(aws ssm get-parameters-by-path \
-            --path "/${MDAA_ORG}/mlops/pipeline/kms/" \
-            --recursive --query "Parameters[?ends_with(Name, '/arn')].Value | [0]" \
-            --output text 2>/dev/null || echo "")
+          PIPELINE_KMS_ARN=$(aws ssm get-parameter \
+            --name "/${MDAA_ORG}/mlops/pipeline/kms/sm-pipeline-test-training-gh/arn" \
+            --query 'Parameter.Value' --output text 2>/dev/null || echo "")
         fi
         export PIPELINE_KMS_ARN="${PIPELINE_KMS_ARN:-}"
         echo "Pipeline bucket: ${PIPELINE_BUCKET_NAME:-<not set>}, KMS: ${PIPELINE_KMS_ARN:-<not set>}"
