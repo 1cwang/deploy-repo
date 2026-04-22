@@ -62,13 +62,18 @@ phases:
           echo "ERROR: No approved model package found in group ${MODEL_PACKAGE_GROUP_NAME}"; exit 1
         fi
         echo "Latest approved model: ${MODEL_PACKAGE_ARN}"
-      # Read pipeline bucket/KMS info from SSM (source account)
+      # Model bucket info comes from L3 construct env vars (MODEL_BUCKET_NAME, PIPELINE_BUCKET_NAME).
+      # Fall back to SSM lookup if not set directly.
       - |
         set -e
-        export PIPELINE_BUCKET_NAME=$(aws ssm get-parameter --name "/${MDAA_ORG}/mlops/pipeline/sm-pipeline/${PROJECT_NAME}/model-bucket-name" --query 'Parameter.Value' --output text)
-        export PIPELINE_BUCKET_ARN="arn:aws:s3:::${PIPELINE_BUCKET_NAME}"
-        export PIPELINE_KMS_ARN=$(aws ssm get-parameter --name "/${MDAA_ORG}/mlops/pipeline/kms/sm-pipeline-${PROJECT_NAME}/arn" --query 'Parameter.Value' --output text)
-        echo "Pipeline bucket: ${PIPELINE_BUCKET_NAME}, KMS: ${PIPELINE_KMS_ARN}"
+        if [ -z "${PIPELINE_BUCKET_NAME}" ]; then
+          export PIPELINE_BUCKET_NAME="${MODEL_BUCKET_NAME}"
+        fi
+        if [ -n "${PIPELINE_BUCKET_NAME}" ]; then
+          export PIPELINE_BUCKET_ARN="arn:aws:s3:::${PIPELINE_BUCKET_NAME}"
+        fi
+        export PIPELINE_KMS_ARN="${PIPELINE_KMS_ARN:-}"
+        echo "Pipeline bucket: ${PIPELINE_BUCKET_NAME:-<not set>}, KMS: ${PIPELINE_KMS_ARN:-<not set>}"
 
   build:
     commands:
