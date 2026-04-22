@@ -105,6 +105,8 @@ phases:
             echo "ERROR: Unknown DEPLOY_STAGE '${DEPLOY_STAGE}'. Expected: dev|preprod|prod"; exit 1
             ;;
         esac
+        export STAGE_SUBNET_IDS="${STAGE_SUBNET_IDS:-[]}"
+        export STAGE_SECURITY_GROUP_IDS="${STAGE_SECURITY_GROUP_IDS:-[]}"
         echo "Stage VPC: ${STAGE_VPC_ID}, Subnets: ${STAGE_SUBNET_IDS}"
 
       # Resolve org name in MDAA routing configs
