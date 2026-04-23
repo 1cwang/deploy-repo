@@ -62,32 +62,34 @@ phases:
           echo "ERROR: No approved model package found in group ${MODEL_PACKAGE_GROUP_NAME}"; exit 1
         fi
         echo "Latest approved model: ${MODEL_PACKAGE_ARN}"
-      # Resolve the training pipeline's bucket and KMS key.
-      # The model.tar.gz lives in the training seed code's pipeline bucket.
-      # PIPELINE_BUCKET_NAME may already be set by the L3 construct (when pipelineBucketName is configured).
-      # Otherwise, look it up from the training seed code's SSM exports using the model package group name.
+      # Resolve model artifact bucket and KMS key.
+      # Lookup order for PIPELINE_BUCKET_NAME:
+      #   1. Already set by L3 construct env var (pipelineBucketName in deploy config)
+      #   2. Auto-resolved from SSM (written by the sagemaker-pipeline-app stack)
+      #   3. Falls back to MODEL_BUCKET_NAME (training-only deployments without a pipeline stack)
+      # Same order for PIPELINE_KMS_ARN: env var → SSM → empty (warning issued).
       - |
         set -e
+        SSM_BUCKET="/${MDAA_ORG}/mlops/pipeline/bucket/pipeline-${PROJECT_NAME}/name"
+        SSM_KMS="/${MDAA_ORG}/mlops/pipeline/kms/sm-pipeline-${PROJECT_NAME}/arn"
         if [ -z "${PIPELINE_BUCKET_NAME}" ]; then
-          MPG_SSM=$(aws ssm get-parameters-by-path \
-            --path "/${MDAA_ORG}/mlops/pipeline/sm-pipeline/" \
-            --recursive --query "Parameters[?ends_with(Name, '/model-bucket-name')].Value" \
-            --output text 2>/dev/null || echo "")
-          if [ -n "${MPG_SSM}" ]; then
-            export PIPELINE_BUCKET_NAME="${MPG_SSM}"
-          else
-            export PIPELINE_BUCKET_NAME="${MODEL_BUCKET_NAME}"
-          fi
+          PIPELINE_BUCKET_NAME=$(aws ssm get-parameter --name "${SSM_BUCKET}" \
+            --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+        fi
+        if [ -z "${PIPELINE_BUCKET_NAME}" ]; then
+          export PIPELINE_BUCKET_NAME="${MODEL_BUCKET_NAME}"
         fi
         if [ -n "${PIPELINE_BUCKET_NAME}" ]; then
           export PIPELINE_BUCKET_ARN="arn:aws:s3:::${PIPELINE_BUCKET_NAME}"
         fi
         if [ -z "${PIPELINE_KMS_ARN}" ]; then
-          PIPELINE_KMS_ARN=$(aws ssm get-parameter \
-            --name "/${MDAA_ORG}/mlops/pipeline/kms/sm-pipeline-test-training-gh/arn" \
+          PIPELINE_KMS_ARN=$(aws ssm get-parameter --name "${SSM_KMS}" \
             --query 'Parameter.Value' --output text 2>/dev/null || echo "")
         fi
         export PIPELINE_KMS_ARN="${PIPELINE_KMS_ARN:-}"
+        if [ -z "${PIPELINE_KMS_ARN}" ] && [ -n "${PIPELINE_BUCKET_NAME}" ]; then
+          echo "WARNING: Could not resolve KMS key for pipeline bucket ${PIPELINE_BUCKET_NAME}."
+        fi
         echo "Pipeline bucket: ${PIPELINE_BUCKET_NAME:-<not set>}, KMS: ${PIPELINE_KMS_ARN:-<not set>}"
 
   build:
@@ -131,8 +133,9 @@ phases:
 
       # Resolve org name in MDAA routing configs
       - |
+        ESCAPED_ORG=$(printf '%s\n' "${MDAA_ORG}" | sed -e 's/[\/&]/\\&/g')
         for cfg in mdaa-config/mdaa-endpoint.yaml mdaa-config/mdaa-monitoring.yaml; do
-          sed -i "s/{{env_var:MDAA_ORG}}/${MDAA_ORG}/g" "$cfg"
+          sed -i "s/{{env_var:MDAA_ORG}}/${ESCAPED_ORG}/g" "$cfg"
         done
 
       # Deploy endpoint (using per-stage domain: deploy-<stage>)
@@ -160,10 +163,3 @@ phases:
       - echo "=== Deploying ${DEPLOY_STAGE} monitoring ==="
       - cd mdaa-config && mdaa deploy -c ./mdaa-monitoring.yaml -d deploy-${DEPLOY_STAGE} && cd ..
       - echo "=== ${DEPLOY_STAGE} stage complete ==="
-# retrigger 20260422T031754
-# retrigger-az 1776828719
-# novpc-test 1776865898
-# novpc-final 1776866763
-# novpc-clean 1776867548
-# novpc-retry 1776868326
-# novpc-final 1776868845
